@@ -1,13 +1,13 @@
 {
-    "name": "yiisoft/yii2-queue",
-    "description": "Yii2 Queue Extension which supported DB, Redis, RabbitMQ, Beanstalk and Gearman",
+    "name": "cnx7/yii2-queue",
+    "description": "Yii2 Queue Extension. Optimised for Redis.",
     "type": "yii2-extension",
     "keywords": ["yii", "queue", "async", "gii", "db", "redis", "rabbitmq", "beanstalk", "gearman"],
     "license": "BSD-3-Clause",
     "authors": [
         {
-            "name": "Roman Zhuravlev",
-            "email": "zhuravljov@gmail.com"
+            "name": "cnx7",
+            "email": "zysafe@live.cn"
         }
     ],
     "support": {
