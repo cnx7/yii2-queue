@@ -168,7 +168,7 @@ abstract class Queue extends Component
         }
 
         $message = $this->serializer->serialize($event->job);
-        $event->id = $this->pushMessage($message, $event->ttr, $event->delay, $event->priority);
+        $event->id = $this->pushMessage($message, $event->ttr, $event->delay, $event->priority, $event->group);
         $this->trigger(self::EVENT_AFTER_PUSH, $event);
 
         return $event->id;
