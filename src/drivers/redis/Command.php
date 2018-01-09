@@ -38,23 +38,34 @@ class Command extends CliCommand
     }
 
     /**
+     * @inheritdoc
+     */
+    protected function isWorkerAction($actionID)
+    {
+        return in_array($actionID, ['run' ,'listen'], true);
+    }
+
+    /**
      * Runs all jobs from redis-queue.
      * It can be used as cron job.
+     *
+     * @return null|int exit code.
      */
     public function actionRun()
     {
-        $this->queue->run();
+        return $this->queue->run(false);
     }
 
     /**
      * Listens redis-queue and runs new jobs.
-     * It can be used as demon process.
+     * It can be used as daemon process.
      *
-     * @param int $wait timeout
+     * @param int $timeout number of seconds to wait a job.
+     * @return null|int exit code.
      */
-    public function actionListen($wait = 3)
+    public function actionListen($timeout = 3)
     {
-        $this->queue->listen($wait);
+        return $this->queue->run(true, $timeout);
     }
 
     /**
@@ -82,9 +93,9 @@ class Command extends CliCommand
         if ($this->queue->remove($id)) {
             $this->stdout("The job has been removed.\n");
             return ExitCode::OK;
-        } else {
-            $this->stdout("The job was not found.\n");
-            return ExitCode::DATAERR;
         }
+
+        $this->stdout("The job was not found.\n");
+        return ExitCode::DATAERR;
     }
 }

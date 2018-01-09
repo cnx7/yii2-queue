@@ -8,8 +8,8 @@
 namespace yii\queue\gearman;
 
 use yii\base\NotSupportedException;
+use yii\queue\cli\LoopInterface;
 use yii\queue\cli\Queue as CliQueue;
-use yii\queue\cli\Signal;
 
 /**
  * Gearman Queue
@@ -28,42 +28,30 @@ class Queue extends CliQueue
 
 
     /**
-     * Runs all jobs from gearman-queue.
+     * Listens queue and runs each job.
+     *
+     * @param bool $repeat whether to continue listening when queue is empty.
+     * @return null|int exit code.
+     * @internal for worker command only.
+     * @since 2.0.2
      */
-    public function run()
+    public function run($repeat)
     {
-        $worker = new \GearmanWorker();
-        $worker->addServer($this->host, $this->port);
-        $worker->addFunction($this->channel, function (\GearmanJob $payload) {
-            list($ttr, $message) = explode(';', $payload->workload(), 2);
-            $this->handleMessage($payload->handle(), $message, $ttr, 1);
+        return $this->runWorker(function (LoopInterface $loop) use ($repeat) {
+            $worker = new \GearmanWorker();
+            $worker->addServer($this->host, $this->port);
+            $worker->addFunction($this->channel, function (\GearmanJob $payload) {
+                list($ttr, $message) = explode(';', $payload->workload(), 2);
+                $this->handleMessage($payload->handle(), $message, $ttr, 1);
+            });
+            $worker->setTimeout($repeat ? 1000 : 1);
+            while ($loop->canContinue()) {
+                $result = $worker->work();
+                if (!$result && !$repeat) {
+                    break;
+                }
+            }
         });
-        $worker->setTimeout(1);
-        do {
-            $worker->work();
-        } while (!Signal::isExit() && $worker->returnCode() === GEARMAN_SUCCESS);
-
-    }
-
-    /**
-     * Listens gearman-queue and runs new jobs.
-     */
-    public function listen()
-    {
-        $worker = new \GearmanWorker();
-        $worker->addServer($this->host, $this->port);
-        $worker->addFunction($this->channel, function (\GearmanJob $payload) {
-            list($ttr, $message) = explode(';', $payload->workload(), 2);
-            $this->handleMessage($payload->handle(), $message, $ttr, 1);
-        });
-
-        $worker->setTimeout(1000);
-        do {
-            $worker->work();
-        } while (
-            !Signal::isExit() &&
-            in_array($worker->returnCode(), [GEARMAN_TIMEOUT, GEARMAN_SUCCESS])
-        );
     }
 
     /**
@@ -93,11 +81,13 @@ class Queue extends CliQueue
         $status = $this->getClient()->jobStatus($id);
         if ($status[0] && !$status[1]) {
             return self::STATUS_WAITING;
-        } elseif ($status[0] && $status[1]) {
-            return self::STATUS_RESERVED;
-        } else {
-            return self::STATUS_DONE;
         }
+
+        if ($status[0] && $status[1]) {
+            return self::STATUS_RESERVED;
+        }
+
+        return self::STATUS_DONE;
     }
 
     /**

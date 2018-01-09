@@ -5,17 +5,18 @@
  * @license http://www.yiiframework.com/license/
  */
 
-namespace yii\queue;
+namespace yii\queue\cli;
 
 /**
- * Class ExecEvent
+ * Loop Interface
  *
  * @author Roman Zhuravlev <zhuravljov@gmail.com>
+ * @since 2.0.2
  */
-class ExecEvent extends JobEvent
+interface LoopInterface
 {
     /**
-     * @var int attempt number
+     * @return bool whether to continue listening of the queue.
      */
-    public $attempt;
+    public function canContinue();
 }

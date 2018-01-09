@@ -13,8 +13,8 @@ use yii\db\Connection;
 use yii\db\Query;
 use yii\di\Instance;
 use yii\mutex\Mutex;
+use yii\queue\cli\LoopInterface;
 use yii\queue\cli\Queue as CliQueue;
-use yii\queue\cli\Signal;
 
 /**
  * Db Queue
@@ -64,32 +64,34 @@ class Queue extends CliQueue
     }
 
     /**
-     * Runs all jobs from db-queue.
-     */
-    public function run()
-    {
-        while (!Signal::isExit() && ($payload = $this->reserve())) {
-            if ($this->handleMessage(
-                $payload['id'],
-                $payload['job'],
-                $payload['ttr'],
-                $payload['attempt']
-            )) {
-                $this->release($payload);
-            }
-        }
-    }
-
-    /**
-     * Listens db-queue and runs new jobs.
+     * Listens queue and runs each job.
      *
-     * @param int $delay number of seconds for waiting new job.
+     * @param bool $repeat whether to continue listening when queue is empty.
+     * @param int $delay number of seconds to sleep before next iteration.
+     * @return null|int exit code.
+     * @internal for worker command only
+     * @since 2.0.2
      */
-    public function listen($delay)
+    public function run($repeat, $delay = 0)
     {
-        do {
-            $this->run();
-        } while (!$delay || sleep($delay) === 0);
+        return $this->runWorker(function (LoopInterface $loop) use ($repeat, $delay) {
+            while ($loop->canContinue()) {
+                if ($payload = $this->reserve()) {
+                    if ($this->handleMessage(
+                        $payload['id'],
+                        $payload['job'],
+                        $payload['ttr'],
+                        $payload['attempt']
+                    )) {
+                        $this->release($payload);
+                    }
+                } elseif (!$repeat) {
+                    break;
+                } elseif ($delay) {
+                    sleep($delay);
+                }
+            }
+        });
     }
 
     /**
@@ -105,18 +107,20 @@ class Queue extends CliQueue
         if (!$payload) {
             if ($this->deleteReleased) {
                 return self::STATUS_DONE;
-            } else {
-                throw new InvalidParamException("Unknown message ID: $id.");
             }
+
+            throw new InvalidParamException("Unknown message ID: $id.");
         }
 
         if (!$payload['reserved_at']) {
             return self::STATUS_WAITING;
-        } elseif (!$payload['done_at']) {
-            return self::STATUS_RESERVED;
-        } else {
-            return self::STATUS_DONE;
         }
+
+        if (!$payload['done_at']) {
+            return self::STATUS_RESERVED;
+        }
+
+        return self::STATUS_DONE;
     }
 
     /**
@@ -159,9 +163,7 @@ class Queue extends CliQueue
             'priority' => $priority ?: 1024,
         ])->execute();
         $tableSchema = $this->db->getTableSchema($this->tableName);
-        $id = $this->db->getLastInsertID($tableSchema->sequenceName);
-
-        return $id;
+        return $this->db->getLastInsertID($tableSchema->sequenceName);
     }
 
     /**
@@ -178,31 +180,33 @@ class Queue extends CliQueue
                 throw new Exception("Has not waited the lock.");
             }
 
-            $this->moveExpired();
+            try {
+                $this->moveExpired();
 
-            // Reserve one message
-            $payload = (new Query())
-                ->from($this->tableName)
-                ->andWhere(['channel' => $this->channel, 'reserved_at' => null])
-                ->andWhere('[[pushed_at]] <= :time - delay', [':time' => time()])
-                ->orderBy(['priority' => SORT_ASC, 'id' => SORT_ASC])
-                ->limit(1)
-                ->one($this->db);
-            if (is_array($payload)) {
-                $payload['reserved_at'] = time();
-                $payload['attempt'] = (int)$payload['attempt'] + 1;
-                $this->db->createCommand()->update($this->tableName, [
-                    'reserved_at' => $payload['reserved_at'], 'attempt' => $payload['attempt']],
-                    ['id' => $payload['id']]
-                )->execute();
+                // Reserve one message
+                $payload = (new Query())
+                    ->from($this->tableName)
+                    ->andWhere(['channel' => $this->channel, 'reserved_at' => null])
+                    ->andWhere('[[pushed_at]] <= :time - delay', [':time' => time()])
+                    ->orderBy(['priority' => SORT_ASC, 'id' => SORT_ASC])
+                    ->limit(1)
+                    ->one($this->db);
+                if (is_array($payload)) {
+                    $payload['reserved_at'] = time();
+                    $payload['attempt'] = (int)$payload['attempt'] + 1;
+                    $this->db->createCommand()->update($this->tableName, [
+                        'reserved_at' => $payload['reserved_at'], 'attempt' => $payload['attempt']],
+                        ['id' => $payload['id']]
+                    )->execute();
 
-                // pgsql
-                if (is_resource($payload['job'])) {
-                    $payload['job'] = stream_get_contents($payload['job']);
+                    // pgsql
+                    if (is_resource($payload['job'])) {
+                        $payload['job'] = stream_get_contents($payload['job']);
+                    }
                 }
+            } finally {
+                $this->mutex->release(__CLASS__ . $this->channel);
             }
-
-            $this->mutex->release(__CLASS__ . $this->channel);
 
             return $payload;
         });

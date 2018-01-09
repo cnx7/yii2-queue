@@ -10,9 +10,9 @@ namespace yii\queue\redis;
 use yii\base\InvalidParamException;
 use yii\base\NotSupportedException;
 use yii\di\Instance;
+use yii\queue\cli\LoopInterface;
 use yii\redis\Connection;
 use yii\queue\cli\Queue as CliQueue;
-use yii\queue\cli\Signal;
 
 /**
  * Redis Queue
@@ -45,37 +45,30 @@ class Queue extends CliQueue
     }
 
     /**
-     * Runs all jobs from redis-queue.
-     */
-    public function run()
-    {
-        $this->openWorker();
-        while (($payload = $this->reserve(0)) !== null) {
-            list($id, $message, $ttr, $attempt) = $payload;
-            if ($this->handleMessage($id, $message, $ttr, $attempt)) {
-                $this->delete($id);
-            }
-        }
-        $this->closeWorker();
-    }
-
-    /**
-     * Listens redis-queue and runs new jobs.
+     * Listens queue and runs each job.
      *
-     * @param int $wait timeout
+     * @param bool $repeat whether to continue listening when queue is empty.
+     * @param int $timeout number of seconds to wait for next message.
+     * @return null|int exit code.
+     * @internal for worker command only.
+     * @since 2.0.2
      */
-    public function listen($wait)
+    public function run($repeat, $timeout = 0)
     {
-        $this->openWorker();
-        while (!Signal::isExit()) {
-            if (($payload = $this->reserve($wait)) !== null) {
-                list($id, $message, $ttr, $attempt) = $payload;
-                if ($this->handleMessage($id, $message, $ttr, $attempt)) {
-                    $this->delete($id);
+        return $this->runWorker(function (LoopInterface $loop) use ($repeat, $timeout) {
+            $this->openWorker();
+            while ($loop->canContinue()) {
+                if (($payload = $this->reserve($timeout)) !== null) {
+                    list($id, $message, $ttr, $attempt) = $payload;
+                    if ($this->handleMessage($id, $message, $ttr, $attempt)) {
+                        $this->delete($id);
+                    }
+                } elseif (!$repeat) {
+                    break;
                 }
             }
-        }
-        $this->closeWorker();
+            $this->closeWorker();
+        });
     }
 
     /**
@@ -88,15 +81,14 @@ class Queue extends CliQueue
         }
 
         if ($this->redis->hexists("$this->channel.attempts", $id)) {
-            // 保留
             return self::STATUS_RESERVED;
-        } elseif ($this->redis->hexists("$this->channel.messages", $id)) {
-            // 等待状态
-            return self::STATUS_WAITING;
-        } else {
-            // 已完成
-            return self::STATUS_DONE;
         }
+
+        if ($this->redis->hexists("$this->channel.messages", $id)) {
+            return self::STATUS_WAITING;
+        }
+
+        return self::STATUS_DONE;
     }
 
     /**
@@ -134,16 +126,16 @@ class Queue extends CliQueue
             foreach ($keys as $key) $this->redis->lrem($key, 0, $id);
 
             return true;
-        } else {
-            return false;
         }
+
+        return false;
     }
 
     /**
-     * @param int $wait timeout
+     * @param int $timeout timeout
      * @return array|null payload
      */
-    protected function reserve($wait)
+    protected function reserve($timeout)
     {
         // Moves delayed and reserved jobs into waiting list with lock for one second
         if ($this->redis->set("$this->channel.moving_lock", true, 'NX', 'EX', 1)) {
@@ -162,9 +154,9 @@ class Queue extends CliQueue
 
         // Find a new waiting message
         $id = null;
-        if (!$wait) {
+        if (!$timeout) {
             $id = $this->redis->rpop("$this->channel.waiting");
-        } elseif ($result = $this->redis->brpop("$this->channel.waiting", $wait)) {
+        } elseif ($result = $this->redis->brpop("$this->channel.waiting", $timeout)) {
             $id = $result[1];
         }
         if (!$id) {

@@ -11,8 +11,8 @@ use Pheanstalk\Exception\ServerException;
 use Pheanstalk\Pheanstalk;
 use Pheanstalk\PheanstalkInterface;
 use yii\base\InvalidParamException;
+use yii\queue\cli\LoopInterface;
 use yii\queue\cli\Queue as CliQueue;
-use yii\queue\cli\Signal;
 
 /**
  * Beanstalk Queue
@@ -40,41 +40,33 @@ class Queue extends CliQueue
 
 
     /**
-     * Runs all jobs from queue.
+     * Listens queue and runs each job.
+     *
+     * @param bool $repeat whether to continue listening when queue is empty.
+     * @param int $timeout number of seconds to wait for next message.
+     * @return null|int exit code.
+     * @internal for worker command only.
+     * @since 2.0.2
      */
-    public function run()
+    public function run($repeat, $timeout = 0)
     {
-        while ($payload = $this->getPheanstalk()->reserveFromTube($this->tube, 0)) {
-            $info = $this->getPheanstalk()->statsJob($payload);
-            if ($this->handleMessage(
-                $payload->getId(),
-                $payload->getData(),
-                $info->ttr,
-                $info->reserves
-            )) {
-                $this->getPheanstalk()->delete($payload);
-            }
-        }
-    }
-
-    /**
-     * Listens queue and runs new jobs.
-     */
-    public function listen()
-    {
-        while (!Signal::isExit()) {
-            if ($payload = $this->getPheanstalk()->reserveFromTube($this->tube, 3)) {
-                $info = $this->getPheanstalk()->statsJob($payload);
-                if ($this->handleMessage(
-                    $payload->getId(),
-                    $payload->getData(),
-                    $info->ttr,
-                    $info->reserves
-                )) {
-                    $this->getPheanstalk()->delete($payload);
+        return $this->runWorker(function (LoopInterface $loop) use ($repeat, $timeout) {
+            while ($loop->canContinue()) {
+                if ($payload = $this->getPheanstalk()->reserveFromTube($this->tube, $timeout)) {
+                    $info = $this->getPheanstalk()->statsJob($payload);
+                    if ($this->handleMessage(
+                        $payload->getId(),
+                        $payload->getData(),
+                        $info->ttr,
+                        $info->reserves
+                    )) {
+                        $this->getPheanstalk()->delete($payload);
+                    }
+                } elseif (!$repeat) {
+                    break;
                 }
             }
-        }
+        });
     }
 
     /**
@@ -90,15 +82,15 @@ class Queue extends CliQueue
             $stats = $this->getPheanstalk()->statsJob($id);
             if ($stats['state'] === 'reserved') {
                 return self::STATUS_RESERVED;
-            } else {
-                return self::STATUS_WAITING;
             }
+
+            return self::STATUS_WAITING;
         } catch (ServerException $e) {
             if ($e->getMessage() === 'Server reported NOT_FOUND') {
                 return self::STATUS_DONE;
-            } else {
-                throw $e;
             }
+
+            throw $e;
         }
     }
 
@@ -118,9 +110,9 @@ class Queue extends CliQueue
         } catch (ServerException $e) {
             if (strpos($e->getMessage(), 'NOT_FOUND') === 0) {
                 return false;
-            } else {
-                throw $e;
             }
+
+            throw $e;
         }
     }
 
@@ -139,7 +131,7 @@ class Queue extends CliQueue
     }
 
     /**
-     * @return array tube statistics
+     * @return object tube statistics
      */
     public function getStatsTube()
     {

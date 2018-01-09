@@ -12,8 +12,8 @@ use yii\base\InvalidConfigException;
 use yii\base\InvalidParamException;
 use yii\base\NotSupportedException;
 use yii\helpers\FileHelper;
+use yii\queue\cli\LoopInterface;
 use yii\queue\cli\Queue as CliQueue;
-use yii\queue\cli\Signal;
 
 /**
  * File Queue
@@ -61,28 +61,30 @@ class Queue extends CliQueue
     }
 
     /**
-     * Runs all jobs from db-queue.
-     */
-    public function run()
-    {
-        while (!Signal::isExit() && ($payload = $this->reserve()) !== null) {
-            list($id, $message, $ttr, $attempt) = $payload;
-            if ($this->handleMessage($id, $message, $ttr, $attempt)) {
-                $this->delete($payload);
-            }
-        }
-    }
-
-    /**
-     * Listens file-queue and runs new jobs.
+     * Listens queue and runs each job.
      *
-     * @param int $delay number of seconds for waiting new job.
+     * @param bool $repeat whether to continue listening when queue is empty.
+     * @param int $delay number of seconds to sleep before next iteration.
+     * @return null|int exit code.
+     * @internal for worker command only.
+     * @since 2.0.2
      */
-    public function listen($delay)
+    public function run($repeat, $delay = 0)
     {
-        do {
-            $this->run();
-        } while (!$delay || sleep($delay) === 0);
+        return $this->runWorker(function (LoopInterface $loop) use ($repeat, $delay) {
+            while ($loop->canContinue()) {
+                if (($payload = $this->reserve()) !== null) {
+                    list($id, $message, $ttr, $attempt) = $payload;
+                    if ($this->handleMessage($id, $message, $ttr, $attempt)) {
+                        $this->delete($payload);
+                    }
+                } elseif (!$repeat) {
+                    break;
+                } elseif ($delay) {
+                    sleep($delay);
+                }
+            }
+        });
     }
 
     /**
@@ -96,9 +98,9 @@ class Queue extends CliQueue
 
         if (file_exists("$this->path/job$id.data")) {
             return self::STATUS_WAITING;
-        } else {
-            return self::STATUS_DONE;
         }
+
+        return self::STATUS_DONE;
     }
 
     /**
@@ -165,7 +167,7 @@ class Queue extends CliQueue
     /**
      * Reserves message for execute
      *
-     * @return string|null payload
+     * @return array|null payload
      */
     protected function reserve()
     {
@@ -197,9 +199,9 @@ class Queue extends CliQueue
 
         if ($id) {
             return [$id, file_get_contents("$this->path/job$id.data"), $ttr, $attempt];
-        } else {
-            return null;
         }
+
+        return null;
     }
 
     /**
@@ -269,7 +271,7 @@ class Queue extends CliQueue
         if ($isNew && $this->fileMode !== null) {
             chmod($fileName, $this->fileMode);
         }
-        if (($file = fopen($fileName, 'r+')) === false) {
+        if (($file = fopen($fileName, 'rb+')) === false) {
             throw new InvalidConfigException("Unable to open index file: $fileName");
         }
         flock($file, LOCK_EX);

@@ -18,6 +18,9 @@ use yii\queue\serializers\SerializerInterface;
 /**
  * Base Queue
  *
+ * @property null|int $workerPid
+ * @since 2.0.2
+ *
  * @author Roman Zhuravlev <zhuravljov@gmail.com>
  */
 abstract class Queue extends Component
@@ -179,13 +182,23 @@ abstract class Queue extends Component
      * @param int $ttr time to reserve in seconds
      * @param int $delay
      * @param mixed $priority
-     * @param mixed $group
-     * @return null|string id of a job message
+     * @return string id of a job message
      */
     abstract protected function pushMessage($message, $ttr, $delay, $priority, $group);
 
     /**
-     * @param string|null $id of a job message
+     * Uses for CLI drivers and gets process ID of a worker.
+     *
+     * @return null
+     * @since 2.0.2
+     */
+    public function getWorkerPid()
+    {
+        return null;
+    }
+
+    /**
+     * @param string $id of a job message
      * @param string $message
      * @param int $ttr time to reserve
      * @param int $attempt number

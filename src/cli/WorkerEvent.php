@@ -5,16 +5,17 @@
  * @license http://www.yiiframework.com/license/
  */
 
-namespace yii\queue;
+namespace yii\queue\cli;
 
 use yii\base\Event;
 
 /**
- * Class JobEvent
+ * Class WorkerEvent
  *
  * @author Roman Zhuravlev <zhuravljov@gmail.com>
+ * @since 2.0.2
  */
-class JobEvent extends Event
+class WorkerEvent extends Event
 {
     /**
      * @var Queue
@@ -22,15 +23,11 @@ class JobEvent extends Event
      */
     public $sender;
     /**
-     * @var string|null unique id of a job
+     * @var LoopInterface
      */
-    public $id;
+    public $loop;
     /**
-     * @var JobInterface
+     * @var null|int exit code
      */
-    public $job;
-    /**
-     * @var int time to reserve in seconds of the job
-     */
-    public $ttr;
+    public $exitCode;
 }

@@ -1,6 +1,9 @@
 RabbitMQ Driver
 ===============
 
+**Note:** The driver has been deprecated since 2.0.2 and will be removed in 2.1.
+Consider using [amqp_interop](driver-amqp-interop.md) driver instead.
+
 The driver works with RabbitMQ queues.
 
 In order for it to work you should add `php-amqplib/php-amqplib` package to your project.
@@ -36,7 +39,7 @@ yii queue/listen
 
 `listen` command launches a daemon which infinitely queries the queue. If there are new tasks
 they're immediately obtained and executed. This method is most efficient when command is properly
-daemonized via [supervisor](worker.md#supervisor).
+daemonized via [supervisor](worker.md#supervisor) or [systemd](worker.md#systemd).
 
 `listen` command has options:
 
