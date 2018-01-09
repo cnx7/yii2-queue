@@ -60,14 +60,12 @@ class Queue extends CliQueue
             while ($loop->canContinue()) {
                 if (($payload = $this->reserve($timeout)) !== null) {
                     list($id, $message, $ttr, $attempt) = $payload;
-                    try {
-                        if ($this->handleMessage($id, $message, $ttr, $attempt)) {
-                            $this->delete($id);
-                        }
-                    }catch (InvalidParamException $e){
+                    if ($this->handleMessage($id, $message, $ttr, $attempt)) {
+                        $this->delete($id);
+                    }else{
+                        //TODO log 失败 throw new InvalidParamException("Job $id must be a JobInterface instance instead of $dump.");
                         $this->delete($id);
                     }
-
                 } elseif (!$repeat) {
                     break;
                 }

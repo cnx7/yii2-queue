@@ -208,8 +208,9 @@ abstract class Queue extends Component
     {
         $job = $this->serializer->unserialize($message);
         if (!($job instanceof JobInterface)) {
-            $dump = VarDumper::dumpAsString($job);
-            throw new InvalidParamException("Job $id must be a JobInterface instance instead of $dump.");
+//            $dump = VarDumper::dumpAsString($job);
+//            throw new InvalidParamException("Job $id must be a JobInterface instance instead of $dump.");
+            return false;
         }
 
         $event = new ExecEvent([
