@@ -60,9 +60,14 @@ class Queue extends CliQueue
             while ($loop->canContinue()) {
                 if (($payload = $this->reserve($timeout)) !== null) {
                     list($id, $message, $ttr, $attempt) = $payload;
-                    if ($this->handleMessage($id, $message, $ttr, $attempt)) {
+                    try {
+                        if ($this->handleMessage($id, $message, $ttr, $attempt)) {
+                            $this->delete($id);
+                        }
+                    }catch (InvalidParamException $e){
                         $this->delete($id);
                     }
+
                 } elseif (!$repeat) {
                     break;
                 }
@@ -144,9 +149,9 @@ class Queue extends CliQueue
         }
 
         // 如果列表为空  则遍历所有的子队列 每个拿一条数据放到列表
-        if(!$this->redis->llen("$this->channel.waiting")){
+        if (!$this->redis->llen("$this->channel.waiting")) {
             $keys = $this->redis->keys("$this->channel.waiting.*");
-            foreach ($keys as $key){
+            foreach ($keys as $key) {
                 $id = $this->redis->rpop($key);
                 $this->redis->lpush("$this->channel.waiting", $id);
             }
